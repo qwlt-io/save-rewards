@@ -2,13 +2,15 @@ const AWS = require("aws-sdk");
 const db = require("../models");
 const { fetchDataFromQueueAndUpdateRewards } = require("../rewards");
 
-const lambda = new AWS.Lambda();
+import * as dotenv from "dotenv";
 
-exports.handler = async (event, context) => {
-  // Sync DB configuration
-  await db.sequelize.sync({ force: false });
+dotenv.config();
 
+export const handler = async (event, context) => {
   try {
+    // Sync DB configuration
+    await db.sequelize.sync({ force: false });
+
     await fetchDataFromQueueAndUpdateRewards(event);
     return {
       statusCode: 200,
@@ -20,5 +22,9 @@ exports.handler = async (event, context) => {
       statusCode: 500,
       body: JSON.stringify("Error updating data"),
     };
+  } finally {
+    await db.sequelize.close();
   }
 };
+
+
