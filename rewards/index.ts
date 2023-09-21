@@ -93,52 +93,61 @@ export async function fetchDataFromQueueAndUpdateRewards(event) {
                 points = stepCount
               }
             }else{
-              //Calculate rewards from the lambda function
-              const response = await axios.post(process.env.AWS_LAMBDA_URL, messageData?.data);
-    
-              if(!response){
-                console.log("Something went wrong with the lambda")
-                continue;
-              }
+                if(event?.metricType === METRIC_TYPE.GPS){
+                  data = {
+                    metricType: METRIC_TYPE.GPS
+                  }
+                }else if(event?.metricType === METRIC_TYPE.SCREEN_TIME){
+                  data = {
+                    metricType: METRIC_TYPE.SCREEN_TIME
+                  }
+                }
+                //Calculate rewards from the lambda function
+                const response = await axios.post(process.env.AWS_LAMBDA_URL, data);
+      
+                if(!response){
+                  console.log("Something went wrong with the lambda")
+                  continue;
+                }
 
-              console.log("Lamda Response:", response.data)
-              if(response?.data){
-                if(response?.data?.body){
-                  if(response?.data?.body?.rewards){
-                    points = response?.data?.body?.rewards
-                  }else{
-                    if(typeof response?.data?.body === 'string'){
-                      let rewardsJSON = JSON.parse(response?.data?.body)
-                      points = rewardsJSON?.rewards
+                console.log("Lamda Response:", response.data)
+                if(response?.data){
+                  if(response?.data?.body){
+                    if(response?.data?.body?.rewards){
+                      points = response?.data?.body?.rewards
+                    }else{
+                      if(typeof response?.data?.body === 'string'){
+                        let rewardsJSON = JSON.parse(response?.data?.body)
+                        points = rewardsJSON?.rewards
+                      }
                     }
                   }
                 }
               }
-            }
 
-            let userId = messageData?.data?.userId
+              let userId = messageData?.data?.userId
 
-            const updateRewardsInput = {
-              userId: userId,
-              points,
-              type: REWARD_TYPE.EARNED,
-              coinType: COIN_TYPE.QWLT
-            }
-  
-            if(!updateRewardsInput.points){
+              const updateRewardsInput = {
+                userId: userId,
+                points,
+                type: REWARD_TYPE.EARNED,
+                coinType: COIN_TYPE.QWLT
+              }
+    
+              if(!updateRewardsInput.points){
+                await deleteMessage(message.ReceiptHandle);
+                continue;
+              }
+    
+              const { errorCode } = await WalletService.addOrUpdateReward(updateRewardsInput)
+    
+              //TODO :: Add logic to move it push notifications
+              if(errorCode){
+                console.log("errorCode:", errorCode)
+              }    
+            
+              // Delete the processed message from the queue
               await deleteMessage(message.ReceiptHandle);
-              continue;
-            }
-  
-            const { errorCode } = await WalletService.addOrUpdateReward(updateRewardsInput)
-  
-            //TODO :: Add logic to move it push notifications
-            if(errorCode){
-              console.log("errorCode:", errorCode)
-            }    
-          
-            // Delete the processed message from the queue
-            await deleteMessage(message.ReceiptHandle);
           }
           process.exit(0);
         } else {
