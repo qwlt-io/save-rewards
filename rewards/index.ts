@@ -1,7 +1,7 @@
 const AWS = require('aws-sdk');
 const axios = require('axios');
 import { WalletService } from '../modules/wallet-module'
-import { COIN_TYPE, REWARD_TYPE } from '../utils/constants';
+import { COIN_TYPE, METRIC_TYPE, REWARD_TYPE } from '../utils/constants';
 
 AWS.config.update({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -11,8 +11,6 @@ AWS.config.update({
 
 let sqs = new AWS.SQS();
 const queueUrl = process.env.AWS_SQS_URL;
-
-
 
 //Put data into the queue through an api call
 export async function putRecordToQueue(data){
@@ -46,7 +44,7 @@ export async function putRecordToQueue(data){
 
 
 //Fetched data from the queue periodically, process it, generate the reward and save the reward in db
-export async function fetchDataFromQueueAndUpdateRewards() {
+export async function fetchDataFromQueueAndUpdateRewards(event) {
 
   try{
     console.log(`inside fetch data ${process.env.SQS_QUEUE_WAIT_TIME_SECONDS}`)
@@ -82,34 +80,43 @@ export async function fetchDataFromQueueAndUpdateRewards() {
             let messageData;
             try {
               messageData = JSON.parse(messageBody);
+              messageData.processType = messageBody?.metricType
             } catch (error) {
               console.error('Error parsing message:', error);
               continue;
             }
-            //Calculate rewards from the labda function
-            const response = await axios.post(process.env.AWS_LAMBDA_URL, messageData?.data);
-  
-            if(!response){
-              console.log("Something went wrong with the lambda")
-              continue;
-            }
-
-            console.log("Lamda Response:", response.data)
-            let userId = messageData?.data?.userId
             let points = 0
 
-            if(response?.data){
-              if(response?.data?.body){
-                if(response?.data?.body?.rewards){
-                  points = response?.data?.body?.rewards
-                }else{
-                  if(typeof response?.data?.body === 'string'){
-                    let rewardsJSON = JSON.parse(response?.data?.body)
-                    points = rewardsJSON?.rewards
+            if(event?.metricType == METRIC_TYPE.STEP_COUNT){
+              let stepCount = messageBody?.metricData?.stepCount
+              if(stepCount > 0){
+                points = stepCount
+              }
+            }else{
+              //Calculate rewards from the lambda function
+              const response = await axios.post(process.env.AWS_LAMBDA_URL, messageData?.data);
+    
+              if(!response){
+                console.log("Something went wrong with the lambda")
+                continue;
+              }
+
+              console.log("Lamda Response:", response.data)
+              if(response?.data){
+                if(response?.data?.body){
+                  if(response?.data?.body?.rewards){
+                    points = response?.data?.body?.rewards
+                  }else{
+                    if(typeof response?.data?.body === 'string'){
+                      let rewardsJSON = JSON.parse(response?.data?.body)
+                      points = rewardsJSON?.rewards
+                    }
                   }
                 }
               }
             }
+
+            let userId = messageData?.data?.userId
 
             const updateRewardsInput = {
               userId: userId,
@@ -117,8 +124,6 @@ export async function fetchDataFromQueueAndUpdateRewards() {
               type: REWARD_TYPE.EARNED,
               coinType: COIN_TYPE.QWLT
             }
-
-            // if(messageData?.data?.metricData?.stepCount)
   
             if(!updateRewardsInput.points){
               await deleteMessage(message.ReceiptHandle);

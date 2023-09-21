@@ -1,11 +1,24 @@
-require("dotenv").config();
+const AWS = require("aws-sdk");
+const db = require("../models");
+const { fetchDataFromQueueAndUpdateRewards } = require("../rewards");
 
-import db from "../models";
-import { fetchDataFromQueueAndUpdateRewards } from "../rewards";
+const lambda = new AWS.Lambda();
 
-// Sync DB configuration
-db.sequelize.sync({ force: false });
+exports.handler = async (event, context) => {
+  // Sync DB configuration
+  await db.sequelize.sync({ force: false });
 
-(async () => {
-await fetchDataFromQueueAndUpdateRewards();
-})();
+  try {
+    await fetchDataFromQueueAndUpdateRewards(event);
+    return {
+      statusCode: 200,
+      body: JSON.stringify("Data updated successfully"),
+    };
+  } catch (error) {
+    console.error("Error updating data:", error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify("Error updating data"),
+    };
+  }
+};
